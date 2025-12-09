@@ -1,8 +1,10 @@
 import os
 import time
 import requests
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import re
+import locale
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -18,105 +20,132 @@ USERNAME = os.environ["EPSI_USER"]
 PASSWORD = os.environ["EPSI_PASS"]
 DISCORD_WEBHOOK = os.environ["DISCORD_URL"]
 
+# Dictionnaire de traduction car GitHub Actions est souvent en Anglais par défaut
+MOIS_FR = {
+    1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
+    7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
+}
+JOURS_FR = {
+    0: "Lundi", 1: "Mardi", 2: "Mercredi", 3: "Jeudi", 4: "Vendredi", 5: "Samedi", 6: "Dimanche"
+}
+
+def get_target_text():
+    """Génère le texte à chercher, ex: 'Mercredi 10 Décembre'"""
+    tomorrow = datetime.now() + timedelta(days=1)
+    
+    jour_nom = JOURS_FR[tomorrow.weekday()]
+    jour_num = tomorrow.strftime("%d") # 10
+    mois_nom = MOIS_FR[tomorrow.month]
+    
+    # Format exact du site : "Mercredi 10 Décembre"
+    return f"{jour_nom} {jour_num} {mois_nom}"
+
 def send_discord(message):
     data = {"content": message}
     try:
         requests.post(DISCORD_WEBHOOK, json=data)
-    except: pass
+        print("✅ Message envoyé sur Discord.")
+    except Exception as e:
+        print(f"❌ Erreur Discord : {e}")
 
 def scrape_edt():
-    print("🚀 Démarrage du SCANNER BRUT...")
+    print("🚀 Démarrage du bot (Mode VISUEL)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # On simule un très grand écran PC pour forcer l'affichage bureau
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    chrome_options.add_argument("--window-size=1920,1080") 
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
+    target_text = get_target_text()
+    print(f"🎯 Texte cible à trouver : '{target_text}'")
+    
     try:
         driver.get(URL_EDT)
-        print(f"🔗 URL actuelle : {driver.current_url}")
-        
         wait = WebDriverWait(driver, 30)
         
         # --- LOGIN ---
-        if "login" in driver.current_url or "cas" in driver.current_url:
-            print("🔑 Tentative de connexion...")
-            try:
-                user_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
-                pass_field = driver.find_element(By.ID, "password")
-                user_field.send_keys(USERNAME)
-                pass_field.send_keys(PASSWORD)
-                pass_field.submit()
-            except:
-                print("⚠️ Formulaire de login non standard trouvé.")
-
-        # --- ATTENTE ---
-        print("⏳ Attente du chargement complet (20s)...")
-        # On attend spécifiquement un élément qui prouve que l'EDT est là
+        print("🔑 Connexion...")
         try:
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "TChdeb"))) # On attend une heure de cours
+            user_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
+            pass_field = driver.find_element(By.ID, "password")
         except:
-            print("⚠️ Attention : Aucun horaire (TChdeb) détecté après 30s.")
+            user_field = driver.find_element(By.NAME, "username")
+            pass_field = driver.find_element(By.NAME, "password")
 
-        time.sleep(10) # Pause supplémentaire
+        user_field.send_keys(USERNAME)
+        pass_field.send_keys(PASSWORD)
+        pass_field.submit()
+        
+        # --- ATTENTE ---
+        print("⏳ Chargement du calendrier (20s)...")
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Jour")))
+        time.sleep(20) # On laisse le temps au carrousel de se placer
 
-        # --- DIAGNOSTIC ---
-        print("📸 Capture du code source...")
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        # 1. Vérifier si on est connectés
-        if "Connexion" in soup.get_text():
-            return "❌ ÉCHEC : Le bot semble bloqué sur la page de connexion."
+        # 1. Trouver l'en-tête du jour (La case grise "Mercredi 10...")
+        day_headers = soup.find_all("div", class_="Jour")
+        target_left = None
+        
+        for header in day_headers:
+            # Le texte est souvent dans une <td> avec class TCJour
+            text_container = header.find(class_="TCJour")
+            if text_container and target_text.lower() in text_container.get_text().lower():
+                # BINGO ! On a trouvé la colonne
+                style = header.get('style', '')
+                left_match = re.search(r'left\s*:\s*([\d\.]+)', style)
+                if left_match:
+                    target_left = float(left_match.group(1))
+                    print(f"✅ Colonne '{target_text}' trouvée à la position : {target_left}%")
+                    break
+        
+        if target_left is None:
+            return f"📅 **Demain ({target_text})** : Colonne introuvable. (Peut-être le WE ou pas de cours affichés ?)"
 
-        # 2. Lister TOUS les cours visibles
+        # 2. Récupérer les cours alignés
+        courses_found = []
         all_courses = soup.find_all("div", class_="Case")
         
-        found_logs = []
-        found_logs.append(f"📊 **Rapport de Scan**")
-        found_logs.append(f"Nombre de blocs 'Case' trouvés : {len(all_courses)}")
-        
-        cpt_cours = 0
-        buffer_msg = ""
-        
-        for i, course in enumerate(all_courses):
-            # On récupère le style pour voir la position
-            style = course.get('style', 'No style')
+        for course in all_courses:
+            if not course.find(class_="TChdeb"): 
+                continue 
             
-            # Est-ce un vrai cours ?
-            heure_div = course.find(class_="TChdeb")
-            prof_div = course.find(class_="TCProf")
+            c_style = course.get('style', '')
+            c_match = re.search(r'left\s*:\s*([\d\.]+)', c_style)
             
-            if heure_div:
-                cpt_cours += 1
-                heure = heure_div.get_text(strip=True)
-                prof = prof_div.get_text(" ", strip=True) if prof_div else "?"
-                left_match = re.search(r'left\s*:\s*([\d\.]+)', style)
-                pos = left_match.group(1) if left_match else "?"
-                
-                line = f"🔹 **Cours {cpt_cours}** : {heure} | Pos: {pos}% | {prof[:30]}..."
-                print(line) # Log GitHub
-                buffer_msg += line + "\n"
-            else:
-                # C'est probablement une case vide ou un décor
-                pass
+            if c_match:
+                c_pos = float(c_match.group(1))
+                # Comparaison de la position (Tolérance stricte car on a la vraie valeur)
+                if abs(c_pos - target_left) < 0.5:
+                    heure = course.find(class_="TChdeb").get_text(strip=True)
+                    # Nettoyage
+                    raw_prof = course.find(class_="TCProf")
+                    matiere = " ".join(raw_prof.get_text().split()) if raw_prof else "Info inconnue"
+                    salle = course.find(class_="TCSalle").get_text(strip=True)
+                    
+                    # Icônes
+                    icon = "📘"
+                    if "Anglais" in matiere: icon = "🇬🇧"
+                    if "Examen" in matiere or "Controle" in matiere: icon = "⚠️ **EXAMEN**"
+                    
+                    courses_found.append(f"{icon} **{heure}**\n**{matiere}**\n📍 {salle}")
 
-        if cpt_cours == 0:
-            return "❌ Aucun cours trouvé dans le code HTML. Le calendrier est vide ou pas chargé."
-        
-        return f"✅ **Succès ! Voici tout ce que le bot voit (sans filtrer le jour) :**\n\n{buffer_msg}"
+        # --- ENVOI ---
+        if courses_found:
+            courses_found.sort() # Trie par heure
+            return f"📅 **Emploi du temps : {target_text}**\n\n" + "\n\n".join(courses_found)
+        else:
+            return f"📅 **Demain ({target_text})** : Pas de cours ! (Grasse mat' 🛌)"
 
     except Exception as e:
-        return f"❌ Crash : {str(e)}"
+        return f"❌ Erreur Script : {str(e)}"
     finally:
         driver.quit()
 
 if __name__ == "__main__":
     msg = scrape_edt()
-    print("--- RAPPORT ---")
     print(msg)
-    send_discord(msg[:1900]) # Discord limite à 2000 caractères
+    send_discord(msg)
