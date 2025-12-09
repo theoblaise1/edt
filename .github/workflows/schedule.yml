@@ -3,7 +3,7 @@ name: Check EDT EPSI
 on:
   schedule:
     # Lance le bot tous les jours à 18h00 UTC (19h ou 20h en France)
-    - cron: '37 13 * * *'
+    - cron: '41 13 * * *'
   workflow_dispatch: # Permet de lancer manuellement pour tester
 
 jobs:
