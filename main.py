@@ -74,7 +74,7 @@ def scrape_edt():
         print("⏳ Chargement du calendrier...")
         # On attend l'affichage des colonnes "Jour"
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Jour")))
-        time.sleep(5) # Pause de sécurité pour le chargement des scripts JS
+        time.sleep(60) # Pause de sécurité pour le chargement des scripts JS
 
         # --- 3. ANALYSE (SCRAPING) ---
         soup = BeautifulSoup(driver.page_source, 'html.parser')
