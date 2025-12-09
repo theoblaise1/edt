@@ -1,0 +1,29 @@
+name: Check EDT EPSI
+
+on:
+  schedule:
+    # Lance le bot tous les jours à 18h00 UTC (19h ou 20h en France)
+    - cron: '0 18 * * *'
+  workflow_dispatch: # Permet de lancer manuellement pour tester
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v3
+
+      - name: Installer Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Installer dépendances
+        run: pip install -r requirements.txt
+
+      - name: Lancer le Bot
+        env:
+          EPSI_USER: ${{ secrets.EPSI_USER }}
+          EPSI_PASS: ${{ secrets.EPSI_PASS }}
+          DISCORD_URL: ${{ secrets.DISCORD_URL }}
+        run: python main.py
