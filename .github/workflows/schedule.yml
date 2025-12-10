@@ -2,10 +2,6 @@ name: Check EDT EPSI
 
 on:
   schedule:
-    # 1er horaire : 14h37 France (13h37 UTC)
-    - cron: '* 6 * * *'
-    
-    # 2ème horaire : 19h30 France (18h30 UTC)
     - cron: '30 18 * * *'
   workflow_dispatch: # Permet de lancer manuellement pour tester
 
