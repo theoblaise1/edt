@@ -3,7 +3,7 @@ name: Check EDT EPSI
 on:
   schedule:
     - cron: '30 18 * * *'
-  workflow_dispatch: # Permet de lancer manuellement pour tester
+  workflow_dispatch:
 
 jobs:
   run-bot:
