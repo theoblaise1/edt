@@ -2,7 +2,7 @@ name: Check EDT EPSI
 
 on:
   schedule:
-    - cron: '30 18 * * *'
+    - cron: ' * * *'
 
   workflow_dispatch:
 
