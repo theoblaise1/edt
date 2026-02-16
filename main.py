@@ -4,7 +4,6 @@ import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import re
-import locale
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -16,12 +15,16 @@ from selenium.webdriver.chrome.options import Options
 
 # --- CONFIGURATION ---
 URL_EDT = "https://ws-edt-cd.wigorservices.net/"
-USERNAME = os.environ["EPSI_USER"]
-PASSWORD = os.environ["EPSI_PASS"]
-DISCORD_WEBHOOK = os.environ["DISCORD_URL"]
-DISCORD_WEBHOOK = os.environ["DISCORD_URL_GAUTHIER"]
+USERNAME = os.environ.get("EPSI_USER")
+PASSWORD = os.environ.get("EPSI_PASS")
 
-# Dictionnaire de traduction car GitHub Actions est souvent en Anglais par défaut
+# Liste des webhooks pour l'envoi groupé
+WEBHOOKS = [
+    os.environ.get("DISCORD_URL"),
+    os.environ.get("DISCORD_URL_GAUTHIER")
+]
+
+# Dictionnaire de traduction (GitHub Actions est souvent en Anglais)
 MOIS_FR = {
     1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
@@ -31,27 +34,37 @@ JOURS_FR = {
 }
 
 def get_target_text():
-    """Génère le texte à chercher, ex: 'Mercredi 10 Décembre'"""
+    """Génère le texte à chercher, ex: 'Mardi 17 Février'"""
     tomorrow = datetime.now() + timedelta(days=1)
     
     jour_nom = JOURS_FR[tomorrow.weekday()]
-    jour_num = tomorrow.strftime("%d") # 10
+    jour_num = tomorrow.strftime("%d")
     mois_nom = MOIS_FR[tomorrow.month]
     
-    # Format exact du site : "Mercredi 10 Décembre"
     return f"{jour_nom} {jour_num} {mois_nom}"
 
 def send_discord(message):
-    data = {"content": message}
-    try:
-        requests.post(DISCORD_WEBHOOK, json=data)
-        print("✅ Message envoyé sur Discord.")
-    except Exception as e:
-        print(f"❌ Erreur Discord : {e}")
+    """Envoie le message à tous les webhooks configurés"""
+    payload = {"content": message}
+    for url in WEBHOOKS:
+        if not url:
+            print("⚠️ Un des Webhooks est vide (variable d'environnement manquante).")
+            continue
+        try:
+            response = requests.post(url, json=payload)
+            if response.status_code == 204:
+                print(f"✅ Message envoyé avec succès à : {url[:30]}...")
+            else:
+                print(f"⚠️ Erreur lors de l'envoi ({response.status_code})")
+        except Exception as e:
+            print(f"❌ Erreur critique Discord : {e}")
 
 def scrape_edt():
-    print("🚀 Démarrage du bot (Mode VISUEL)...")
+    print("🚀 Démarrage du bot (Mode Headless)...")
     
+    if not USERNAME or not PASSWORD:
+        return "❌ Erreur : Identifiants EPSI manquants dans les variables d'environnement."
+
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
@@ -61,14 +74,14 @@ def scrape_edt():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
     target_text = get_target_text()
-    print(f"🎯 Texte cible à trouver : '{target_text}'")
+    print(f"🎯 Recherche des cours pour : '{target_text}'")
     
     try:
         driver.get(URL_EDT)
         wait = WebDriverWait(driver, 30)
         
         # --- LOGIN ---
-        print("🔑 Connexion...")
+        print("🔑 Connexion au portail...")
         try:
             user_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
             pass_field = driver.find_element(By.ID, "password")
@@ -80,33 +93,31 @@ def scrape_edt():
         pass_field.send_keys(PASSWORD)
         pass_field.submit()
         
-        # --- ATTENTE ---
+        # --- ATTENTE CHARGEMENT ---
         print("⏳ Chargement du calendrier (20s)...")
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Jour")))
-        time.sleep(20) # On laisse le temps au carrousel de se placer
+        time.sleep(20) 
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        # 1. Trouver l'en-tête du jour (La case grise "Mercredi 10...")
+        # 1. Trouver l'en-tête du jour cible
         day_headers = soup.find_all("div", class_="Jour")
         target_left = None
         
         for header in day_headers:
-            # Le texte est souvent dans une <td> avec class TCJour
             text_container = header.find(class_="TCJour")
             if text_container and target_text.lower() in text_container.get_text().lower():
-                # BINGO ! On a trouvé la colonne
                 style = header.get('style', '')
                 left_match = re.search(r'left\s*:\s*([\d\.]+)', style)
                 if left_match:
                     target_left = float(left_match.group(1))
-                    print(f"✅ Colonne '{target_text}' trouvée à la position : {target_left}%")
+                    print(f"✅ Colonne trouvée à la position : {target_left}%")
                     break
         
         if target_left is None:
-            return f"📅 **Demain ({target_text})** : Colonne introuvable. (Peut-être le WE ou pas de cours affichés ?)"
+            return f"📅 **Demain ({target_text})** : Aucun cours trouvé sur l'EDT."
 
-        # 2. Récupérer les cours alignés
+        # 2. Récupérer les cours de cette colonne
         courses_found = []
         all_courses = soup.find_all("div", class_="Case")
         
@@ -119,34 +130,33 @@ def scrape_edt():
             
             if c_match:
                 c_pos = float(c_match.group(1))
-                # Comparaison de la position (Tolérance stricte car on a la vraie valeur)
+                # Tolérance de positionnement
                 if abs(c_pos - target_left) < 0.5:
                     heure = course.find(class_="TChdeb").get_text(strip=True)
-                    # Nettoyage
                     raw_prof = course.find(class_="TCProf")
-                    matiere = " ".join(raw_prof.get_text().split()) if raw_prof else "Info inconnue"
+                    matiere = " ".join(raw_prof.get_text().split()) if raw_prof else "Matière inconnue"
                     salle = course.find(class_="TCSalle").get_text(strip=True)
                     
-                    # Icônes
                     icon = "📘"
                     if "Anglais" in matiere: icon = "🇬🇧"
-                    if "Examen" in matiere or "Controle" in matiere: icon = "⚠️ **EXAMEN**"
+                    if any(word in matiere.lower() for word in ["examen", "controle", "quizz"]): 
+                        icon = "⚠️ **EXAMEN**"
                     
                     courses_found.append(f"{icon} **{heure}**\n**{matiere}**\n📍 {salle}")
 
-        # --- ENVOI ---
+        # --- MISE EN FORME ---
         if courses_found:
-            courses_found.sort() # Trie par heure
+            courses_found.sort() 
             return f"📅 **Emploi du temps : {target_text}**\n\n" + "\n\n".join(courses_found)
         else:
-            return f"📅 **Demain ({target_text})** : Pas de cours ! (Grasse mat' 🛌)"
+            return f"📅 **Demain ({target_text})** : Pas de cours prévus ! 🛌"
 
     except Exception as e:
-        return f"❌ Erreur Script : {str(e)}"
+        return f"❌ Erreur lors du scraping : {str(e)}"
     finally:
         driver.quit()
 
 if __name__ == "__main__":
-    msg = scrape_edt()
-    print(msg)
-    send_discord(msg)
+    resultat = scrape_edt()
+    print(resultat)
+    send_discord(resultat)
