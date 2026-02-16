@@ -2,7 +2,8 @@ name: Check EDT EPSI
 
 on:
   schedule:
-      - cron: 0 18 * * 0-4   
+    # S'exécute à 18:00 UTC du dimanche au jeudi
+    - cron: '0 18 * * 0-4'
   workflow_dispatch:
 
 jobs:
@@ -18,11 +19,14 @@ jobs:
           python-version: '3.9'
 
       - name: Installer dépendances
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Lancer le Bot
         env:
           EPSI_USER: ${{ secrets.EPSI_USER }}
           EPSI_PASS: ${{ secrets.EPSI_PASS }}
           DISCORD_URL: ${{ secrets.DISCORD_URL }}
+          DISCORD_URL_GAUTHIER: ${{ secrets.DISCORD_URL_GAUTHIER }}
         run: python main.py
