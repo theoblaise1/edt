@@ -19,6 +19,7 @@ URL_EDT = "https://ws-edt-cd.wigorservices.net/"
 USERNAME = os.environ["EPSI_USER"]
 PASSWORD = os.environ["EPSI_PASS"]
 DISCORD_WEBHOOK = os.environ["DISCORD_URL"]
+DISCORD_WEBHOOK = os.environ["DISCORD_URL_GAUTHIER"]
 
 # Dictionnaire de traduction car GitHub Actions est souvent en Anglais par défaut
 MOIS_FR = {
