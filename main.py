@@ -22,6 +22,7 @@ PASSWORD = os.environ.get("EPSI_PASS")
 WEBHOOKS = [
     os.environ.get("DISCORD_URL"),
     os.environ.get("DISCORD_URL_GAUTHIER")
+    os.environ.get("STOAT_URL")
 ]
 
 # Dictionnaire de traduction (GitHub Actions est souvent en Anglais)
