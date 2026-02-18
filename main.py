@@ -21,7 +21,7 @@ PASSWORD = os.environ.get("EPSI_PASS")
 # Liste des webhooks pour l'envoi groupé
 WEBHOOKS = [
     os.environ.get("DISCORD_URL"),
-    os.environ.get("DISCORD_URL_GAUTHIER")
+    os.environ.get("DISCORD_URL_GAUTHIER"),
     os.environ.get("STOAT_URL")
 ]
 
