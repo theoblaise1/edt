@@ -29,4 +29,5 @@ jobs:
           EPSI_PASS: ${{ secrets.EPSI_PASS }}
           DISCORD_URL: ${{ secrets.DISCORD_URL }}
           DISCORD_URL_GAUTHIER: ${{ secrets.DISCORD_URL_GAUTHIER }}
+          STOAT_URL: ${{ secrets.STOAT_URL }}
         run: python main.py
