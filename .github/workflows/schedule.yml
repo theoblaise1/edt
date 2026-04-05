@@ -1,14 +1,16 @@
-name: Check EDT EPSI
+name: Update Apple Calendar EDT
 
 on:
   schedule:
-    # S'exécute à 18:00 UTC du dimanche au jeudi
-    - cron: '0 18 * * 0-4'
+    # S'exécute tous les jours à 18:00 UTC
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # IMPORTANT : Permet de push le fichier .ics
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v3
@@ -27,7 +29,12 @@ jobs:
         env:
           EPSI_USER: ${{ secrets.EPSI_USER }}
           EPSI_PASS: ${{ secrets.EPSI_PASS }}
-          DISCORD_URL: ${{ secrets.DISCORD_URL }}
-          DISCORD_URL_GAUTHIER: ${{ secrets.DISCORD_URL_GAUTHIER }}
-          STOAT_URL: ${{ secrets.STOAT_URL }}
         run: python main.py
+
+      - name: Sauvegarder le calendrier sur GitHub
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add mon_edt.ics
+          git commit -m "Mise à jour auto de l'emploi du temps" || exit 0
+          git push
