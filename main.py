@@ -1,6 +1,5 @@
 import os
 import time
-import requests
 import re
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -12,7 +11,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
-from ics import Calendar, Event
 
 # --- CONFIGURATION ---
 URL_EDT = "https://ws-edt-cd.wigorservices.net/"
@@ -38,7 +36,9 @@ def scrape_edt():
     chrome_options.add_argument("--disable-dev-shm-usage")
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    cal = Calendar()
+    
+    # Liste pour stocker les résultats
+    planning = []
     
     try:
         driver.get(URL_EDT)
@@ -60,13 +60,13 @@ def scrape_edt():
         # On traite les 7 prochains jours
         for i in range(7):
             target_date = datetime.now() + timedelta(days=i)
-            target_text = f"{JOURS_FR[target_date.weekday()]} {target_date.strftime('%d')} {MOIS_FR[target_date.month]}"
+            date_str = f"{JOURS_FR[target_date.weekday()]} {target_date.strftime('%d')} {MOIS_FR[target_date.month]}"
             
             # Trouver la position de la colonne du jour
             target_left = None
             day_headers = soup.find_all("div", class_="Jour")
             for header in day_headers:
-                if target_text.lower() in header.get_text().lower():
+                if date_str.lower() in header.get_text().lower():
                     style = header.get('style', '')
                     match = re.search(r'left\s*:\s*([\d\.]+)', style)
                     if match:
@@ -84,27 +84,24 @@ def scrape_edt():
                 if c_match and abs(float(c_match.group(1)) - target_left) < 0.5:
                     if not course.find(class_="TChdeb"): continue
                     
-                    heure_raw = course.find(class_="TChdeb").get_text(strip=True) # ex: "08:30"
+                    heure_raw = course.find(class_="TChdeb").get_text(strip=True)
                     matiere = " ".join(course.find(class_="TCProf").get_text().split()) if course.find(class_="TCProf") else "Cours"
                     salle = course.find(class_="TCSalle").get_text(strip=True) if course.find(class_="TCSalle") else "N/A"
                     
-                    # Création de l'événement iCal
-                    e = Event()
-                    e.name = matiere
-                    e.location = salle
-                    
-                    # Gestion des horaires (approximation fin de cours +1h30 si non précisé)
-                    h, m = map(int, heure_raw.split(':'))
-                    start_dt = target_date.replace(hour=h, minute=m, second=0)
-                    e.begin = start_dt
-                    e.duration = {"hours": 1, "minutes": 30} 
-                    
-                    cal.events.add(e)
+                    planning.append({
+                        "date": date_str,
+                        "heure": heure_raw,
+                        "matiere": matiere,
+                        "salle": salle
+                    })
 
-        # Sauvegarde du fichier
-        with open("mon_edt.ics", "w") as f:
-            f.writelines(cal.serialize_iter())
-        print("✅ Fichier mon_edt.ics généré avec succès.")
+        # Affichage des résultats
+        if planning:
+            print("\n📅 Votre emploi du temps :")
+            for c in sorted(planning, key=lambda x: x['date']):
+                print(f"[{c['date']} - {c['heure']}] {c['matiere']} (Salle: {c['salle']})")
+        else:
+            print("--- Aucun cours trouvé pour les 7 prochains jours ---")
 
     finally:
         driver.quit()
