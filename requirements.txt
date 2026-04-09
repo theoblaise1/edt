@@ -2,4 +2,3 @@ selenium
 webdriver-manager
 beautifulsoup4
 requests
-ics
